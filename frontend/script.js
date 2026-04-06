@@ -1,0 +1,434 @@
+const API_BASE = "http://localhost:8000";
+const STORAGE_KEY = "answerbot_chat_history";
+
+// ---------- DOM refs ----------
+const fileInput       = document.getElementById("file-input");
+const fileQueue       = document.getElementById("file-queue");
+const uploadBtn       = document.getElementById("upload-btn");
+const uploadStatus    = document.getElementById("upload-status");
+const libraryList     = document.getElementById("library-list");
+const libraryCount    = document.getElementById("library-count");
+
+const chatMessages    = document.getElementById("chat-messages");
+const chatEmpty       = document.getElementById("chat-empty");
+const queryInput      = document.getElementById("query-input");
+const askBtn          = document.getElementById("ask-btn");
+const askLoader       = document.getElementById("ask-loader");
+const sendIcon        = document.getElementById("send-icon");
+const clearChatBtn    = document.getElementById("clear-chat-btn");
+
+const confirmModal    = document.getElementById("confirm-modal");
+const modalMessage    = document.getElementById("modal-message");
+const modalCancel     = document.getElementById("modal-cancel");
+const modalConfirm    = document.getElementById("modal-confirm");
+
+const progressContainer = document.getElementById("query-progress-container");
+const progressBar       = document.getElementById("progress-bar");
+const progressStage     = document.getElementById("progress-stage");
+const progressPercent   = document.getElementById("progress-percent");
+
+// ---------- State ----------
+let stagedFiles     = [];
+let pendingDeleteId = null;
+let isQuerying      = false;
+
+// ---------- Chat history (persisted in localStorage) ----------
+/**
+ * Each entry: { role: "user"|"bot", text, sources?, chunks?, ts }
+ */
+function loadHistory() {
+    try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    } catch { return []; }
+}
+
+function saveHistory(history) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(history)); } catch {}
+}
+
+// ---------- Init ----------
+document.addEventListener("DOMContentLoaded", () => {
+    fetchLibrary();
+    restoreChatHistory();
+    queryInput.addEventListener("keydown", e => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendQuery(); }
+    });
+});
+
+// ---------- Restore previous session ----------
+function restoreChatHistory() {
+    const history = loadHistory();
+    if (history.length === 0) return;
+    chatEmpty.style.display = "none";
+    history.forEach(entry => renderMessage(entry, false));
+    scrollToBottom();
+}
+
+// ---------- Clear history ----------
+clearChatBtn.addEventListener("click", () => {
+    if (!confirm("Clear all chat history? This cannot be undone.")) return;
+    localStorage.removeItem(STORAGE_KEY);
+    chatMessages.innerHTML = "";
+    chatMessages.appendChild(rebuildEmptyState());
+});
+
+function rebuildEmptyState() {
+    const el = document.createElement("div");
+    el.className = "chat-empty-state";
+    el.id = "chat-empty";
+    el.innerHTML = `
+        <div class="chat-empty-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+        </div>
+        <p>Ask anything about your uploaded documents.</p>
+        <span>Your conversation history will be saved automatically.</span>
+    `;
+    return el;
+}
+
+// ---------- Send query ----------
+askBtn.addEventListener("click", sendQuery);
+
+async function sendQuery() {
+    const query = queryInput.value.trim();
+    if (!query || isQuerying) return;
+
+    isQuerying = true;
+    setLoading(true);
+
+    // Hide empty state
+    const emptyEl = document.getElementById("chat-empty");
+    if (emptyEl) emptyEl.style.display = "none";
+
+    // Add user bubble immediately
+    const userEntry = { role: "user", text: query, ts: Date.now() };
+    appendToHistory(userEntry);
+    renderMessage(userEntry, true);
+    queryInput.value = "";
+
+    // Show typing indicator
+    const typingEl = addTypingIndicator();
+
+    // Progress simulation
+    let queryActive = true;
+    updateProgress(10, "Initializing context search...");
+    const t1 = setTimeout(() => { if (queryActive) updateProgress(40, "Retrieving relevant documents..."); }, 700);
+    const t2 = setTimeout(() => { if (queryActive) updateProgress(75, "Synthesizing answer..."); }, 1900);
+
+    try {
+        const formData = new FormData();
+        formData.append("query", query);
+
+        const response = await fetch(`${API_BASE}/query`, { method: "POST", body: formData });
+        queryActive = false;
+        clearTimeout(t1); clearTimeout(t2);
+        updateProgress(100, "Finalizing...");
+
+        if (!response.ok) throw new Error("Server error. Check API config or server logs.");
+
+        const data = await response.json();
+
+        await delay(500);
+        progressContainer.style.display = "none";
+        typingEl.remove();
+
+        const botEntry = {
+            role: "bot",
+            text: data.answer,
+            sources: data.sources || [],
+            chunks: data.retrieved_results || [],
+            ts: Date.now()
+        };
+        appendToHistory(botEntry);
+        renderMessage(botEntry, true);
+
+    } catch (err) {
+        queryActive = false;
+        clearTimeout(t1); clearTimeout(t2);
+        progressContainer.style.display = "none";
+        typingEl.remove();
+
+        const errEntry = { role: "bot", text: `⚠️ ${err.message}`, ts: Date.now() };
+        appendToHistory(errEntry);
+        renderMessage(errEntry, true);
+    } finally {
+        isQuerying = false;
+        setLoading(false);
+        scrollToBottom();
+    }
+}
+
+// ---------- Render a single message ----------
+function renderMessage(entry, animate) {
+    const wrapper = document.createElement("div");
+    wrapper.className = `chat-message ${entry.role}`;
+    if (!animate) wrapper.style.animation = "none";
+
+    // Bubble
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble";
+    bubble.textContent = entry.text;
+    wrapper.appendChild(bubble);
+
+    // Timestamp
+    const ts = document.createElement("span");
+    ts.className = "chat-ts";
+    ts.textContent = formatTime(entry.ts);
+    wrapper.appendChild(ts);
+
+    // Sources (bot only)
+    if (entry.role === "bot" && entry.sources && entry.sources.length > 0) {
+        const sourcesRow = document.createElement("div");
+        sourcesRow.className = "chat-sources";
+        entry.sources.forEach(src => {
+            const pill = document.createElement("span");
+            pill.className = "chat-source-pill";
+            pill.innerHTML = `
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                ${escapeHTML(src)}
+            `;
+            sourcesRow.appendChild(pill);
+        });
+        wrapper.appendChild(sourcesRow);
+    }
+
+    // Chunks accordion (bot only)
+    if (entry.role === "bot" && entry.chunks && entry.chunks.length > 0) {
+        const toggle = document.createElement("button");
+        toggle.className = "chat-chunks-toggle";
+        toggle.innerHTML = `
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10H3M21 6H3M21 14H3M21 18H3"/></svg>
+            View ${entry.chunks.length} retrieved context chunk${entry.chunks.length > 1 ? "s" : ""}
+        `;
+
+        const panel = document.createElement("div");
+        panel.className = "chat-chunks-panel";
+
+        entry.chunks.forEach(chunk => {
+            const card = document.createElement("div");
+            card.className = "chat-chunk-card";
+            const scoreLabel = typeof chunk.score === "number" ? chunk.score.toFixed(4) : "—";
+            card.innerHTML = `
+                <div class="chat-chunk-meta">
+                    <span>${escapeHTML(chunk.file_name)} · Page ${chunk.page_number}</span>
+                    <span>Score ${scoreLabel} · ${escapeHTML(chunk.method || "")}</span>
+                </div>
+                <div>${escapeHTML(chunk.content)}</div>
+            `;
+            panel.appendChild(card);
+        });
+
+        toggle.addEventListener("click", () => {
+            const open = panel.classList.toggle("open");
+            toggle.innerHTML = `
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10H3M21 6H3M21 14H3M21 18H3"/></svg>
+                ${open ? "Hide" : "View"} ${entry.chunks.length} retrieved context chunk${entry.chunks.length > 1 ? "s" : ""}
+            `;
+        });
+
+        wrapper.appendChild(toggle);
+        wrapper.appendChild(panel);
+    }
+
+    chatMessages.appendChild(wrapper);
+    if (animate) scrollToBottom();
+}
+
+// ---------- Typing indicator ----------
+function addTypingIndicator() {
+    const wrapper = document.createElement("div");
+    wrapper.className = "chat-message bot";
+    wrapper.id = "typing-indicator-row";
+
+    const indicator = document.createElement("div");
+    indicator.className = "typing-indicator";
+    indicator.innerHTML = `<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>`;
+
+    wrapper.appendChild(indicator);
+    chatMessages.appendChild(wrapper);
+    scrollToBottom();
+    return wrapper;
+}
+
+// ---------- Progress ----------
+function updateProgress(percent, stage) {
+    progressContainer.style.display = "flex";
+    progressBar.style.width = `${percent}%`;
+    progressStage.textContent = stage;
+    progressPercent.textContent = `${percent}%`;
+}
+
+// ---------- Helpers ----------
+function appendToHistory(entry) {
+    const history = loadHistory();
+    history.push(entry);
+    saveHistory(history);
+}
+
+function scrollToBottom() {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function setLoading(on) {
+    askBtn.disabled = on;
+    askLoader.style.display = on ? "inline-block" : "none";
+    if (sendIcon) sendIcon.style.display = on ? "none" : "inline";
+}
+
+function formatTime(ts) {
+    const d = new Date(ts);
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function escapeHTML(str) {
+    const div = document.createElement("div");
+    div.textContent = str ?? "";
+    return div.innerHTML;
+}
+
+// ---------- File upload ----------
+fileInput.addEventListener("change", () => {
+    const files = Array.from(fileInput.files);
+    files.forEach(file => {
+        const isDup = stagedFiles.some(f => f.name === file.name && f.size === file.size);
+        if (!isDup) stagedFiles.push(file);
+    });
+    fileInput.value = "";
+    renderQueue();
+});
+
+function renderQueue() {
+    fileQueue.innerHTML = "";
+    const label = document.querySelector(".custom-file-upload span");
+    if (stagedFiles.length === 0) {
+        label.textContent = "Choose Files";
+        label.style.color = "var(--text-muted)";
+        uploadBtn.disabled = true;
+        return;
+    }
+    uploadBtn.disabled = false;
+    label.textContent = `${stagedFiles.length} ${stagedFiles.length === 1 ? "file" : "files"} in queue`;
+    label.style.color = "var(--primary)";
+
+    stagedFiles.forEach((file, index) => {
+        const item = document.createElement("div");
+        item.className = "file-item";
+        const info = document.createElement("div");
+        info.className = "file-item-info";
+        info.innerHTML = `
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="file-item-name">${escapeHTML(file.name)}</span>
+        `;
+        const removeBtn = document.createElement("button");
+        removeBtn.className = "file-item-remove";
+        removeBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+        removeBtn.addEventListener("click", () => { stagedFiles.splice(index, 1); renderQueue(); });
+        item.appendChild(info);
+        item.appendChild(removeBtn);
+        fileQueue.appendChild(item);
+    });
+}
+
+uploadBtn.addEventListener("click", async () => {
+    if (stagedFiles.length === 0) { showStatus("Please select at least one file.", "error"); return; }
+    uploadBtn.disabled = true;
+    showStatus(`Uploading ${stagedFiles.length} file(s)...`, "success");
+    try {
+        let ok = 0;
+        for (const file of stagedFiles) {
+            const fd = new FormData();
+            fd.append("file", file);
+            const res = await fetch(`${API_BASE}/upload`, { method: "POST", body: fd });
+            if (res.ok) ok++;
+        }
+        showStatus(`Successfully indexed ${ok} file(s).`, "success");
+        stagedFiles = [];
+        renderQueue();
+        fetchLibrary();
+    } catch {
+        showStatus("Connection error. Is the server running?", "error");
+    } finally {
+        uploadBtn.disabled = stagedFiles.length === 0;
+    }
+});
+
+// ---------- Library ----------
+async function fetchLibrary() {
+    try {
+        const res = await fetch(`${API_BASE}/documents`);
+        if (!res.ok) throw new Error();
+        renderLibrary(await res.json());
+    } catch {
+        libraryList.innerHTML = `<p class="section-desc" style="color:#ff453a">Failed to load library.</p>`;
+    }
+}
+
+function renderLibrary(docs) {
+    libraryList.innerHTML = "";
+    libraryCount.textContent = `${docs.length} ${docs.length === 1 ? "Document" : "Documents"}`;
+    if (docs.length === 0) {
+        libraryList.innerHTML = `<p class="section-desc">Knowledge base is empty. Upload documents to get started.</p>`;
+        return;
+    }
+    docs.forEach(doc => {
+        const item = document.createElement("div");
+        item.className = "library-item";
+        const content = document.createElement("div");
+        content.className = "library-item-content";
+        const date = new Date(doc.upload_time).toLocaleDateString(undefined, {
+            month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit"
+        });
+        content.innerHTML = `
+            <span class="library-item-name">${escapeHTML(doc.file_name)}</span>
+            <span class="library-item-meta">Indexed on ${date}</span>
+        `;
+        const actions = document.createElement("div");
+        actions.className = "library-item-actions";
+        const delBtn = document.createElement("button");
+        delBtn.className = "btn-icon-delete";
+        delBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+        delBtn.onclick = () => showDeleteModal(doc.id, doc.file_name);
+        actions.appendChild(delBtn);
+        item.appendChild(content);
+        item.appendChild(actions);
+        libraryList.appendChild(item);
+    });
+}
+
+function showStatus(text, type) {
+    uploadStatus.textContent = text;
+    uploadStatus.className = `status ${type}`;
+    if (type === "success") setTimeout(() => { if (uploadStatus.textContent === text) uploadStatus.textContent = ""; }, 5000);
+}
+
+// ---------- Delete modal ----------
+function showDeleteModal(id, fileName) {
+    pendingDeleteId = id;
+    modalMessage.textContent = `Are you sure you want to delete "${fileName}"? This will remove all associated context.`;
+    confirmModal.style.display = "flex";
+}
+
+modalCancel.onclick = () => { confirmModal.style.display = "none"; pendingDeleteId = null; };
+
+modalConfirm.onclick = async () => {
+    if (!pendingDeleteId) return;
+    modalConfirm.disabled = true;
+    modalConfirm.textContent = "Deleting...";
+    try {
+        const res = await fetch(`${API_BASE}/documents/${pendingDeleteId}`, { method: "DELETE", mode: "cors" });
+        if (!res.ok) throw new Error();
+        showStatus("Document deleted.", "success");
+        fetchLibrary();
+    } catch {
+        alert("Failed to delete document. Ensure the server is running.");
+    } finally {
+        modalConfirm.disabled = false;
+        modalConfirm.textContent = "Delete Now";
+        confirmModal.style.display = "none";
+        pendingDeleteId = null;
+    }
+};
+
+window.onclick = e => { if (e.target === confirmModal) modalCancel.onclick(); };

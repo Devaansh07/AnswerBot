@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+sqlalchemy
+duckdb
+duckdb-engine
+rapidfuzz
+openai
+pypdf
+python-docx
+python-multipart

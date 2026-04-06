@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AnswerBot | Premium RAG QA</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Plus+Jakarta+Sans:wght@700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-glow"></div>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+                <h1>AnswerBot</h1>
+            </div>
+            <p>High-Performance RAG Pipeline • Powered by PostgreSQL</p>
+        </header>
+
+        <!-- Upload Section -->
+        <div class="grid-layout">
+            <section id="upload-section">
+                <h2>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                    Data Ingestion
+                </h2>
+                <div class="upload-container">
+                    <p class="section-desc">Upload documents (PDF,DOC, DOCX, TXT) to index into the knowledge base.</p>
+                    <div class="upload-input-group">
+                        <label for="file-input" class="custom-file-upload">
+                            <span>Choose Files</span>
+                            <input type="file" id="file-input" accept=".pdf,.docx,.doc,.txt" multiple>
+                        </label>
+                        <div id="file-queue" class="file-queue"></div>
+                        <button id="upload-btn" class="btn-primary">Upload All</button>
+                    </div>
+                    <div id="upload-status" class="status"></div>
+                </div>
+            </section>
+
+        </div>
+
+        <!-- Document Library Section -->
+        <section id="library-section">
+            <div class="section-header">
+                <h2>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    Knowledge Library
+                </h2>
+                <span class="badge" id="library-count">0 Documents</span>
+            </div>
+            <div id="library-list" class="library-list">
+                <!-- Dynamically filled -->
+                <p class="section-desc">Loading library...</p>
+            </div>
+        </section>
+
+        <!-- Chat Section -->
+        <section id="chat-section">
+            <div class="chat-header">
+                <div class="chat-title">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    <h2>Chat</h2>
+                </div>
+                <div class="chat-header-actions">
+                    <button id="clear-chat-btn" class="btn-ghost" title="Clear chat history">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                        Clear History
+                    </button>
+                </div>
+            </div>
+
+            <div id="chat-messages" class="chat-messages">
+                <div class="chat-empty-state" id="chat-empty">
+                    <div class="chat-empty-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+                    </div>
+                    <p>Ask anything about your uploaded documents.</p>
+                    <span>Your conversation history will be saved automatically.</span>
+                </div>
+            </div>
+
+            <!-- Progress Bar (inside chat) -->
+            <div id="query-progress-container" class="query-progress-container">
+                <div class="progress-info">
+                    <span id="progress-stage">Initializing...</span>
+                    <span id="progress-percent">0%</span>
+                </div>
+                <div class="progress-track">
+                    <div id="progress-bar" class="progress-bar"></div>
+                </div>
+            </div>
+
+            <div class="chat-input-bar">
+                <div class="chat-input-wrapper">
+                    <input type="text" id="query-input" placeholder="Ask anything about your documents..." autocomplete="off">
+                    <button id="ask-btn" class="btn-send" title="Send message">
+                        <span id="ask-loader" class="loader"></span>
+                        <svg id="send-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                    </button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Custom Confirm Modal -->
+    <div id="confirm-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            </div>
+            <h3>Delete Document?</h3>
+            <p id="modal-message">Are you sure you want to delete this document? This action is permanent.</p>
+            <div class="modal-actions">
+                <button id="modal-cancel" class="btn-secondary">Cancel</button>
+                <button id="modal-confirm" class="btn-danger">Delete Now</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

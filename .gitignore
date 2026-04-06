@@ -1,0 +1,76 @@
+.env# ----------------------
+# Python
+# ----------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# ----------------------
+# Environment variables
+# ----------------------
+.env
+.env.*
+*.env
+
+# ----------------------
+# Logs
+# ----------------------
+*.log
+uvicorn.log
+
+# ----------------------
+# Database files
+# ----------------------
+*.db
+*.sqlite3
+*.duckdb
+*.duckdb.wal
+
+# ----------------------
+# OS files
+# ----------------------
+.DS_Store
+Thumbs.db
+
+# ----------------------
+# IDE / Editor
+# ----------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ----------------------
+# Build / dist
+# ----------------------
+build/
+dist/
+*.egg-info/
+
+# ----------------------
+# Test artifacts
+# ----------------------
+.coverage
+htmlcov/
+.pytest_cache/
+
+# ----------------------
+# Node / frontend (if you expand later)
+# ----------------------
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ----------------------
+# Misc
+# ----------------------
+*.bak
+*.tmp
