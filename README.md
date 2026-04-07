@@ -327,3 +327,46 @@ Image responses are rendered as flex-wrap galleries. Each image card has a hover
 | Linux | `antiword` |
 
 All other components (FastAPI, DuckDB, PyMuPDF, OpenAI SDK) are natively cross-platform.
+
+---
+
+### 13. Deep Code Explanation (Module Logic)
+
+This section provides a high-level walkthrough of the internal logic within each major module:
+
+#### `backend/main.py` (The Orchestrator)
+This is the entry point of the FastAPI application.
+- **Lifespan/Startup**: Initializes the database and FTS index.
+- **`/upload`**: Reads the file stream, determines extension, and hands off to `ingestion.py`.
+- **`/query`**: 
+    - It first parses the `chat_history` from the form data.
+    - It triggers the **Retrieval Pipeline** (`retrieval.py`) to get context.
+    - **Logic Spike**: It checks the query for "image" keywords and "page number" regexes. It then filters the retrieved chunks' `image_path` metadata so the LLM only "sees" images that match the user's specific page request.
+    - Finally, it calls the **LLM Client** (`llm_client.py`) to generate the prose answer.
+- **`/api/download`**: A specialized route that uses `FileResponse` with `Content-Disposition: attachment`. This bypasses browser "preview" modes and forces a local file save on the user's machine.
+
+#### `backend/app/ingestion/ingestion.py` (The Parser)
+- **`process_file`**: Routes different file types to their specific extractors.
+- **PDF Logic**: Uses `fitz` (PyMuPDF) to iterate pages. It extracts text and performs an **XREF-based image sweep**. This is more robust than standard PDF parsers because it extracts the raw image objects directly from the PDF structure.
+- **Chunking**: Uses a sliding window approach (words) with overlap. *Crucially*, it prepends a header `[File: name - Page X]` to every text chunk. This "injects" metadata into the text index, allowing the search engine to find "Page 1" even if the page text itself doesn't contain the word "one".
+
+#### `backend/app/retrieval/retrieval.py` (The Search Engine)
+- **`retrieve_top_k`**: Implements a cascading search strategy to ensure high recall:
+    1. **Lead Chunks**: If a query is global ("summarize this"), it automatically pulls page-1 chunks.
+    2. **BM25 Strict**: Uses DuckDB's native full-text search index to find exact keyword matches.
+    3. **BM25 Relaxed**: If strict fails (returns 0 chunks), it breaks the query into tokens and searches for any token match.
+    4. **Fuzzy Fallback**: Uses `rapidfuzz` to calculate string similarity scores for every chunk in the DB. This handles typos and synonyms that the keyword index might miss.
+
+#### `backend/app/llm/llm_client.py` (The Brain)
+- **Prompt Engineering**: Uses a sophisticated system prompt that defines the bot as a "context-only" assistant.
+- **Image Awareness**: The prompt explicitly tells GPT-4o that images ARE being shown by the UI, preventing the model from saying "I cannot see images."
+- **Context Injection**: It formats the retrieved DuckDB chunks into a serialized "Source/Content" block for the model to digest.
+
+#### `backend/app/db.py` (The Persistence)
+- Defines the SQLAlchemy models for `Document` and `DocumentChunk`.
+- **`refresh_fts_index`**: Manages the life-cycle of the DuckDB FTS index. It drops and recreates the index on every change (upload/delete) to ensure the search results are always fresh and consistent.
+
+#### `frontend/script.js` (The Interface)
+- **Session Logic**: Uses a `UUID`-based keyed object in `localStorage` to keep chats separate.
+- **Rendering**: Implements a custom Markdown-lite renderer for chat bubbles and a dynamic gallery for images.
+- **Download Hook**: Instead of simple links, it points to the backend's `/api/download` route to ensure native local file saving works across all browsers.
