@@ -86,17 +86,36 @@ async def query_documents(query: str = Form(...), chat_history: str = Form("[]")
         retrieved_chunks = retrieve_top_k(db, query)
         print(f"DEBUG: Retrieved {len(retrieved_chunks)} chunks.")
         
-        # 2. Generate answer
+        # 2. Check if user explicitly asked for an image
+        image_keywords = ["image", "picture", "diagram", "chart", "graph", "figure", "plot", "photo"]
+        wants_image = any(kw in query.lower() for kw in image_keywords)
+        
+        images_to_return = []
+        if wants_image:
+            for c in retrieved_chunks:
+                if c.get("image_path"):
+                    paths = c["image_path"].split(",")
+                    for p in paths:
+                        if p and p not in images_to_return:
+                            images_to_return.append(p)
+                    c["content"] += f"\n[SYSTEM NOTE: The related images from {c['file_name']} (Page {c['page_number']}) are currently displayed to the user. You can refer to them.]"
+        else:
+            # Mask image paths to ensure UI stays clean
+            for c in retrieved_chunks:
+                c["image_path"] = None
+        
+        # 3. Generate answer
         print(f"DEBUG: Calling LLM for generation...")
         result = generate_answer(query, retrieved_chunks, history_list)
         print(f"DEBUG: Answer generated successfully.")
         
-        # 3. Construct response
+        # 4. Construct response
         return {
             "query": query,
             "retrieved_results": retrieved_chunks,
             "answer": result["answer"],
-            "sources": result["sources"]
+            "sources": result["sources"],
+            "images": images_to_return
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -220,6 +220,7 @@ async function sendQuery() {
         const botEntry = {
             role: "bot",
             text: data.answer,
+            images: data.images || [],
             sources: data.sources || [],
             chunks: data.retrieved_results || [],
             ts: Date.now()
@@ -260,6 +261,20 @@ function renderMessage(entry, animate) {
     ts.className = "chat-ts";
     ts.textContent = formatTime(entry.ts);
     wrapper.appendChild(ts);
+
+    // Images (bot only)
+    if (entry.role === "bot" && entry.images && entry.images.length > 0) {
+        const imagesContainer = document.createElement("div");
+        imagesContainer.className = "chat-images-container";
+        entry.images.forEach(imgPath => {
+            const img = document.createElement("img");
+            img.src = imgPath.startsWith("http") ? imgPath : API_BASE + imgPath;
+            img.className = "chat-embedded-image";
+            img.onclick = () => window.open(img.src, '_blank');
+            imagesContainer.appendChild(img);
+        });
+        wrapper.appendChild(imagesContainer);
+    }
 
     // Sources (bot only)
     if (entry.role === "bot" && entry.sources && entry.sources.length > 0) {

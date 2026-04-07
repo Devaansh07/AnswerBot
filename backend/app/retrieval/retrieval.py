@@ -45,6 +45,7 @@ def get_lead_chunks(db: Session, query: str, limit: int = 5) -> List[Dict[str, A
             dc.content,
             d.file_name,
             dc.page_number,
+            dc.image_path,
             1.0 AS score,
             'lead_chunk' AS method
         FROM document_chunks dc
@@ -77,6 +78,7 @@ def _run_bm25_query(db: Session, query: str, limit: int, method: str) -> List[Di
             dc.content,
             d.file_name,
             dc.page_number,
+            dc.image_path,
             fts_main_document_chunks.match_bm25(dc.id, :query) AS score,
             :method AS method
         FROM document_chunks dc
@@ -103,7 +105,8 @@ def _run_fuzzy_fallback(db: Session, query: str, limit: int) -> List[Dict[str, A
             SELECT
                 dc.content,
                 d.file_name,
-                dc.page_number
+                dc.page_number,
+                dc.image_path
             FROM document_chunks dc
             JOIN documents d ON dc.document_id = d.id
             """
@@ -120,6 +123,7 @@ def _run_fuzzy_fallback(db: Session, query: str, limit: int) -> List[Dict[str, A
                 "content": row["content"],
                 "file_name": row["file_name"],
                 "page_number": row["page_number"],
+                "image_path": row["image_path"],
                 "score": float(score),
                 "method": "fuzzy_rapidfuzz",
             }
@@ -184,6 +188,7 @@ def retrieve_top_k(db: Session, query: str, k: int = 20) -> List[Dict[str, Any]]
                 "content": row["content"],
                 "file_name": row["file_name"],
                 "page_number": row["page_number"],
+                "image_path": row["image_path"],
                 "score": float(row["score"]),
                 "method": row["method"],
             }

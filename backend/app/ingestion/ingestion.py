@@ -21,24 +21,24 @@ def extract_text_from_pdf(file_content: bytes, doc_id: int) -> List[Dict[str, An
         text = page.extract_text()
         
         # Image extraction
-        image_path = None
-        if len(page.images) > 0:
+        image_paths = []
+        for img_idx, image in enumerate(page.images):
             try:
-                # Save the first image of the page as a representative image
-                image = page.images[0]
-                img_name = f"doc_{doc_id}_pg_{page_num}.png"
+                img_name = f"doc_{doc_id}_pg_{page_num}_img_{img_idx}.png"
                 img_path = os.path.join(static_dir, img_name)
                 with open(img_path, "wb") as f:
                     f.write(image.data)
-                image_path = f"/static/images/{img_name}"
+                image_paths.append(f"/static/images/{img_name}")
             except Exception as e:
-                print(f"Error extracting image from page {page_num}: {e}")
+                print(f"Error extracting image {img_idx} from page {page_num}: {e}")
+                
+        image_path_str = ",".join(image_paths) if image_paths else None
 
-        if text or image_path:
+        if text or image_path_str:
             pages_data.append({
                 "page_number": page_num,
                 "content": text.strip() if text else "",
-                "image_path": image_path
+                "image_path": image_path_str
             })
     return pages_data
 
