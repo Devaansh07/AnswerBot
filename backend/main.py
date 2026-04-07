@@ -69,6 +69,21 @@ async def delete_document(doc_id: int, db: Session = Depends(get_db)):
     refresh_fts_index()
     return {"status": "success", "message": f"Document {doc_id} deleted"}
 
+from fastapi.responses import FileResponse
+
+@app.get("/api/download")
+async def download_file(path: str):
+    """Serve a file strictly as an attachment to automatically force OS downloads."""
+    # Strip leading slash if present
+    if path.startswith("/"):
+        path = path[1:]
+        
+    full_path = os.path.join("backend", "app", path)
+    if os.path.exists(full_path):
+        filename = os.path.basename(full_path)
+        return FileResponse(full_path, media_type="application/octet-stream", filename=filename)
+    raise HTTPException(status_code=404, detail="File not found")
+
 import json
 
 @app.post("/query")
@@ -90,9 +105,29 @@ async def query_documents(query: str = Form(...), chat_history: str = Form("[]")
         image_keywords = ["image", "picture", "diagram", "chart", "graph", "figure", "plot", "photo"]
         wants_image = any(kw in query.lower() for kw in image_keywords)
         
+        import re
+        word_to_num = {
+            "first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+            "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10,
+            "1st": 1, "2nd": 2, "3rd": 3, "4th": 4, "5th": 5
+        }
+        
+        req_page_nums = []
+        page_matches = re.finditer(r'(?:page(?:s)?\s*(\d+))|((first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|1st|2nd|3rd|4th|5th)\s*page)', query.lower())
+        for m in page_matches:
+            if m.group(1):
+                req_page_nums.append(int(m.group(1)))
+            elif m.group(2):
+                req_page_nums.append(word_to_num[m.group(2)])
+        
         images_to_return = []
         if wants_image:
             for c in retrieved_chunks:
+                # Strictly enforce page check if any pages were requested
+                if req_page_nums and c["page_number"] not in req_page_nums:
+                     c["image_path"] = None
+                     continue
+                
                 if c.get("image_path"):
                     paths = c["image_path"].split(",")
                     for p in paths:

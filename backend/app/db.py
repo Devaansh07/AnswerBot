@@ -15,7 +15,10 @@ except ImportError as exc:
 project_root = Path(__file__).resolve().parent.parent.parent
 db_path = project_root / "answerbot.duckdb"
 
-engine = create_engine(f"duckdb:///{db_path}")
+engine = create_engine(
+    f"duckdb:///{db_path}",
+    connect_args={"preload_extensions": ["fts"]}
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -67,13 +70,13 @@ def refresh_fts_index():
     _load_fts_extension()
     with engine.begin() as conn:
         try:
-            conn.exec_driver_sql("DROP INDEX IF EXISTS document_chunks_fts_idx;")
+            conn.exec_driver_sql("PRAGMA drop_fts_index('document_chunks');")
         except Exception as e:
-            print("Drop index failed:", e)
+            pass
 
         try:
             conn.exec_driver_sql(
-                "CREATE INDEX document_chunks_fts_idx ON document_chunks USING fts(content);"
+                "PRAGMA create_fts_index('document_chunks', 'id', 'content');"
             )
         except Exception as e:
             print("FTS index creation failed:", e)

@@ -267,11 +267,27 @@ function renderMessage(entry, animate) {
         const imagesContainer = document.createElement("div");
         imagesContainer.className = "chat-images-container";
         entry.images.forEach(imgPath => {
+            const wrap = document.createElement("div");
+            wrap.className = "chat-img-wrapper";
+            
             const img = document.createElement("img");
             img.src = imgPath.startsWith("http") ? imgPath : API_BASE + imgPath;
             img.className = "chat-embedded-image";
             img.onclick = () => window.open(img.src, '_blank');
-            imagesContainer.appendChild(img);
+            
+            const dll = document.createElement("a");
+            
+            // Map strictly to the custom API download route to inherently bypass StaticFiles CORS boundaries
+            const formattedPath = imgPath.startsWith("/") ? imgPath : "/" + imgPath;
+            dll.href = `${API_BASE}/api/download?path=${encodeURIComponent(formattedPath)}`;
+            
+            dll.className = "chat-img-dl-btn";
+            dll.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>`;
+            dll.title = "Download Image";
+            
+            wrap.appendChild(img);
+            wrap.appendChild(dll);
+            imagesContainer.appendChild(wrap);
         });
         wrapper.appendChild(imagesContainer);
     }

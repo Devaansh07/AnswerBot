@@ -5,7 +5,7 @@ duckdb
 duckdb-engine
 rapidfuzz
 openai
-pypdf
+PyMuPDF
 python-docx
 python-multipart
 python-dotenv
