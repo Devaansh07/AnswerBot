@@ -1,6 +1,9 @@
 import os
 from typing import List, Dict, Any
 import openai
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # OpenAI Client Initialization:
 api_key = os.getenv("OPENAI_API_KEY")
@@ -16,7 +19,7 @@ else:
         base_url=base_url
     )
 
-def generate_answer(query: str, chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
+def generate_answer(query: str, chunks: List[Dict[str, Any]], chat_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
     """Generates an answer using OpenAI GPT-4o."""
     if client is None:
         return {
@@ -31,10 +34,13 @@ def generate_answer(query: str, chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
             "sources": []
         }
     
+    if chat_history is None:
+        chat_history = []
+        
     # Construct context string
     context = "\n---\n".join([f"Source: {c['file_name']} (Page {c['page_number']})\nContent: {c['content']}" for c in chunks])
     
-    prompt = f"""You are a high-performance QA system. You have been provided with CONTEXT from one or more documents.
+    system_prompt = f"""You are a high-performance QA system. You have been provided with CONTEXT from one or more documents.
 Your goal is to answer the USER QUERY based ONLY on the provided CONTEXT.
 
 GUIDELINES:
@@ -45,20 +51,28 @@ GUIDELINES:
 - Maintain a professional, objective tone.
 
 CONTEXT:
-{context}
+{context}"""
 
-USER QUERY:
-{query}
-
-ANSWER:"""
+    messages = [{"role": "system", "content": system_prompt}]
     
+    # Map previous history
+    # Only keep last 6 messages to avoid context bloat
+    for msg in chat_history[-6:]:
+        # Our frontend history uses "bot" for assistant
+        role = "assistant" if msg.get("role") == "bot" else "user"
+        content = msg.get("content", "")
+        if content:
+            messages.append({"role": role, "content": content})
+            
+    messages.append({"role": "user", "content": f"USER QUERY:\n{query}\n\nANSWER:"})
+
     try:
         # Use the configured model
         print(f"LLM DEBUG: Requesting generation with model '{openai_model}'...")
         
         response = client.chat.completions.create(
             model=openai_model,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0,
             timeout=45.0 # 45 second timeout for complex GPT generations
         )

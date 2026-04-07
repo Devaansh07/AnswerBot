@@ -147,7 +147,7 @@ def process_file(db: Session, file_name: str, file_content: bytes, file_ext: str
             continue
 
         chunks = chunk_text(content_text)
-        for chunk in chunks:
+        for i, chunk in enumerate(chunks):
             if not chunk.strip():
                 continue
             db_chunk = DocumentChunk(
@@ -155,7 +155,7 @@ def process_file(db: Session, file_name: str, file_content: bytes, file_ext: str
                 document_id=db_doc.id,
                 page_number=page["page_number"],
                 content=chunk,
-                image_path=image_path if content_text == chunk else None # Attaching image to first chunk only
+                image_path=image_path if i == 0 else None # Attaching image to first chunk only
             )
             db.add(db_chunk)
             next_chunk_id += 1

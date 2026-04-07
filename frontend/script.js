@@ -1,5 +1,5 @@
 const API_BASE = "http://localhost:8000";
-const STORAGE_KEY = "answerbot_chat_history";
+const STORAGE_KEY = "answerbot_chat_sessions";
 
 // ---------- DOM refs ----------
 const fileInput       = document.getElementById("file-input");
@@ -15,7 +15,9 @@ const queryInput      = document.getElementById("query-input");
 const askBtn          = document.getElementById("ask-btn");
 const askLoader       = document.getElementById("ask-loader");
 const sendIcon        = document.getElementById("send-icon");
-const clearChatBtn    = document.getElementById("clear-chat-btn");
+
+const newChatBtn      = document.getElementById("new-chat-btn");
+const sidebarChatList = document.getElementById("sidebar-chat-list");
 
 const confirmModal    = document.getElementById("confirm-modal");
 const modalMessage    = document.getElementById("modal-message");
@@ -32,45 +34,121 @@ let stagedFiles     = [];
 let pendingDeleteId = null;
 let isQuerying      = false;
 
+let chatSessions = {};
+let currentChatId = null;
+
+function generateId() { return Math.random().toString(36).substring(2, 9); }
+
 // ---------- Chat history (persisted in localStorage) ----------
-/**
- * Each entry: { role: "user"|"bot", text, sources?, chunks?, ts }
- */
-function loadHistory() {
+function loadSessions() {
     try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-    } catch { return []; }
+        const data = localStorage.getItem(STORAGE_KEY);
+        if (data) chatSessions = JSON.parse(data);
+    } catch { chatSessions = {}; }
 }
 
-function saveHistory(history) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(history)); } catch {}
+function saveSessions() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(chatSessions)); } catch {}
 }
 
 // ---------- Init ----------
 document.addEventListener("DOMContentLoaded", () => {
     fetchLibrary();
-    restoreChatHistory();
+    loadSessions();
+    const sessionIds = Object.keys(chatSessions);
+    if (sessionIds.length > 0) {
+        // Sort by updatedAt descending
+        sessionIds.sort((a, b) => chatSessions[b].updatedAt - chatSessions[a].updatedAt);
+        currentChatId = sessionIds[0];
+    } else {
+        createNewChat();
+    }
+    renderSidebar();
+    loadCurrentChat();
+
     queryInput.addEventListener("keydown", e => {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendQuery(); }
     });
 });
 
-// ---------- Restore previous session ----------
-function restoreChatHistory() {
-    const history = loadHistory();
-    if (history.length === 0) return;
-    chatEmpty.style.display = "none";
-    history.forEach(entry => renderMessage(entry, false));
-    scrollToBottom();
+newChatBtn.addEventListener("click", createNewChat);
+
+function createNewChat() {
+    currentChatId = generateId();
+    chatSessions[currentChatId] = {
+        title: "New Chat",
+        updatedAt: Date.now(),
+        messages: []
+    };
+    saveSessions();
+    renderSidebar();
+    loadCurrentChat();
 }
 
-// ---------- Clear history ----------
-clearChatBtn.addEventListener("click", () => {
-    if (!confirm("Clear all chat history? This cannot be undone.")) return;
-    localStorage.removeItem(STORAGE_KEY);
+function deleteChat(id, e) {
+    e.stopPropagation();
+    if (!confirm("Delete this chat?")) return;
+    delete chatSessions[id];
+    saveSessions();
+    
+    // If we deleted the active chat, pick another or make new
+    if (currentChatId === id) {
+        const remaining = Object.keys(chatSessions);
+        if (remaining.length > 0) {
+            remaining.sort((a, b) => chatSessions[b].updatedAt - chatSessions[a].updatedAt);
+            currentChatId = remaining[0];
+        } else {
+            createNewChat(); // automatically saves and renders
+            return;
+        }
+    }
+    renderSidebar();
+    loadCurrentChat();
+}
+
+function selectChat(id) {
+    if (isQuerying) return;
+    currentChatId = id;
+    renderSidebar();
+    loadCurrentChat();
+}
+
+function renderSidebar() {
+    sidebarChatList.innerHTML = "";
+    const sessionIds = Object.keys(chatSessions);
+    sessionIds.sort((a, b) => chatSessions[b].updatedAt - chatSessions[a].updatedAt);
+
+    sessionIds.forEach(id => {
+        const session = chatSessions[id];
+        const item = document.createElement("div");
+        item.className = `sidebar-chat-item ${id === currentChatId ? 'active' : ''}`;
+        item.onclick = () => selectChat(id);
+
+        const titleSpan = document.createElement("span");
+        titleSpan.className = "sidebar-chat-title";
+        titleSpan.textContent = session.title;
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "chat-delete-btn";
+        delBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
+        delBtn.onclick = (e) => deleteChat(id, e);
+
+        item.appendChild(titleSpan);
+        item.appendChild(delBtn);
+        sidebarChatList.appendChild(item);
+    });
+}
+
+function loadCurrentChat() {
     chatMessages.innerHTML = "";
-    chatMessages.appendChild(rebuildEmptyState());
-});
+    const session = chatSessions[currentChatId];
+    if (!session || session.messages.length === 0) {
+        chatMessages.appendChild(rebuildEmptyState());
+        return;
+    }
+    session.messages.forEach(entry => renderMessage(entry, false));
+    scrollToBottom();
+}
 
 function rebuildEmptyState() {
     const el = document.createElement("div");
@@ -81,7 +159,7 @@ function rebuildEmptyState() {
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
         </div>
         <p>Ask anything about your uploaded documents.</p>
-        <span>Your conversation history will be saved automatically.</span>
+        <span>Your conversation history is saved automatically.</span>
     `;
     return el;
 }
@@ -118,6 +196,13 @@ async function sendQuery() {
     try {
         const formData = new FormData();
         formData.append("query", query);
+        
+        // Pass stripped context history
+        const sessionHistory = chatSessions[currentChatId].messages.map(m => ({
+            role: m.role,
+            content: m.text
+        }));
+        formData.append("chat_history", JSON.stringify(sessionHistory));
 
         const response = await fetch(`${API_BASE}/query`, { method: "POST", body: formData });
         queryActive = false;
@@ -260,9 +345,18 @@ function updateProgress(percent, stage) {
 
 // ---------- Helpers ----------
 function appendToHistory(entry) {
-    const history = loadHistory();
-    history.push(entry);
-    saveHistory(history);
+    if (!chatSessions[currentChatId]) return;
+    const session = chatSessions[currentChatId];
+    
+    // Set title on first message
+    if (session.messages.length === 0 && entry.role === "user") {
+        session.title = entry.text.substring(0, 35) + (entry.text.length > 35 ? "..." : "");
+    }
+    
+    session.messages.push(entry);
+    session.updatedAt = Date.now();
+    saveSessions();
+    renderSidebar(); // to update order and title if needed
 }
 
 function scrollToBottom() {

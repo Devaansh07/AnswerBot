@@ -69,10 +69,17 @@ async def delete_document(doc_id: int, db: Session = Depends(get_db)):
     refresh_fts_index()
     return {"status": "success", "message": f"Document {doc_id} deleted"}
 
+import json
+
 @app.post("/query")
-async def query_documents(query: str = Form(...), db: Session = Depends(get_db)):
+async def query_documents(query: str = Form(...), chat_history: str = Form("[]"), db: Session = Depends(get_db)):
     """Handles query retrieval and generation."""
     print(f"\n--- New Query Received: '{query}' ---")
+    try:
+        history_list = json.loads(chat_history)
+    except Exception:
+        history_list = []
+        
     try:
         # 1. Retrieve top 5 chunks
         print(f"DEBUG: Starting retrieval for '{query}'...")
@@ -81,7 +88,7 @@ async def query_documents(query: str = Form(...), db: Session = Depends(get_db))
         
         # 2. Generate answer
         print(f"DEBUG: Calling LLM for generation...")
-        result = generate_answer(query, retrieved_chunks)
+        result = generate_answer(query, retrieved_chunks, history_list)
         print(f"DEBUG: Answer generated successfully.")
         
         # 3. Construct response

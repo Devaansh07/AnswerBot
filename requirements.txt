@@ -8,3 +8,4 @@ openai
 pypdf
 python-docx
 python-multipart
+python-dotenv
