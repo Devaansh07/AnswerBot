@@ -63,7 +63,7 @@ Open `frontend/index.html` directly in your browser. No additional build step re
 
 ### 1. Project Overview
 
-AnswerBot is a **Retrieval-Augmented Generation (RAG)** system that allows users to upload documents (PDF, DOCX, DOC, TXT) and ask natural-language questions against them. The system retrieves the most semantically relevant chunks from a local DuckDB database and passes them as grounded context to a GPT-4o language model, which then generates a cited, document-backed answer. The architecture is strictly non-vector-based — it uses BM25 full-text search and fuzzy matching for retrieval.
+AnswerBot is a **Retrieval-Augmented Generation (RAG)** system that allows users to upload documents (PDF, DOCX, DOC, TXT) and ask natural-language questions against them. It features **native multilingual support**, allowing you to upload documents in any language and receive grounded, cited answers in English. The system retrieves the most semantically relevant chunks from a local DuckDB database and passes them to a GPT-4o language model. The architecture is strictly non-vector-based — it uses BM25 full-text search and fuzzy matching for retrieval.
 
 ---
 
@@ -370,3 +370,14 @@ This is the entry point of the FastAPI application.
 - **Session Logic**: Uses a `UUID`-based keyed object in `localStorage` to keep chats separate.
 - **Rendering**: Implements a custom Markdown-lite renderer for chat bubbles and a dynamic gallery for images.
 - **Download Hook**: Instead of simple links, it points to the backend's `/api/download` route to ensure native local file saving works across all browsers.
+
+---
+
+### 14. Multilingual Support
+
+AnswerBot is designed to be language-agnostic during ingestion and language-enforcing during generation:
+
+- **Ingestion**: All text extraction is performed using UTF-8 encoding. This covers standard Latin scripts, Cyrillic, Hanzi/Kanji, Arabic, Devanagari, and more.
+- **Search**: DuckDB's BM25 index tokenizes the original text. You can search using keywords in the original language or rely on the LLM's reasoning.
+- **Cross-Lingual Reasoning**: The system leverages GPT-4o's native capability to understand over 100 languages. Even if your document is in French or Chinese, the model understands the semantic context perfectly.
+- **English-Only Enforcement**: To maintain consistency in a professional environment, the `system_prompt` contains a strict directive: *\"Always generate your final response in English, regardless of the language of the provided CONTEXT or the USER QUERY.\"*
