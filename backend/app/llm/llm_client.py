@@ -106,3 +106,21 @@ CONTEXT:
         "answer": answer,
         "sources": unique_sources
     }
+
+def transcribe_audio(audio_file_path: str) -> str:
+    """Uses OpenAI Whisper-1 to transcribe audio files."""
+    if client is None:
+        return "Error: OpenAI client not initialized. Check API key."
+    
+    try:
+        with open(audio_file_path, "rb") as audio_file:
+            print(f"WHISPER DEBUG: Transcribing {audio_file_path}...")
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file,
+                response_format="text"
+            )
+            return transcription.strip()
+    except Exception as e:
+        print(f"WHISPER ERROR: {str(e)}")
+        return f"Transcription Error: {str(e)}"

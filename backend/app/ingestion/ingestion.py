@@ -6,6 +6,7 @@ import docx
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from backend.app.db import Document, DocumentChunk, refresh_fts_index
+from backend.app.llm.llm_client import transcribe_audio
 
 def extract_text_from_pdf(file_content: bytes, doc_id: int) -> List[Dict[str, Any]]:
     """Extracts text, page numbers, and embedded XREF images from a PDF."""
@@ -129,6 +130,24 @@ def extract_text_from_doc(file_content: bytes) -> List[Dict[str, Any]]:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
+def extract_text_from_audio(file_content: bytes, file_ext: str) -> List[Dict[str, Any]]:
+    """Transcribes audio content using OpenAI Whisper."""
+    import tempfile
+    
+    with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tf:
+        tf.write(file_content)
+        temp_path = tf.name
+    
+    try:
+        text = transcribe_audio(temp_path)
+        return [{
+            "page_number": 1,
+            "content": text.strip()
+        }]
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
 def chunk_text(text: str, chunk_size=400, overlap=50) -> List[str]:
     """Chunks text into segments of approximately chunk_size words."""
     words = text.split()
@@ -162,6 +181,8 @@ def process_file(db: Session, file_name: str, file_content: bytes, file_ext: str
         pages = extract_text_from_doc(file_content)
     elif file_ext == ".txt":
         pages = extract_text_from_txt(file_content)
+    elif file_ext in [".mp3", ".wav", ".m4a", ".webm"]:
+        pages = extract_text_from_audio(file_content, file_ext)
     else:
         return None
 

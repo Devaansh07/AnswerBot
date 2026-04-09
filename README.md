@@ -381,3 +381,23 @@ AnswerBot is designed to be language-agnostic during ingestion and language-enfo
 - **Search**: DuckDB's BM25 index tokenizes the original text. You can search using keywords in the original language or rely on the LLM's reasoning.
 - **Cross-Lingual Reasoning**: The system leverages GPT-4o's native capability to understand over 100 languages. Even if your document is in French or Chinese, the model understands the semantic context perfectly.
 - **English-Only Enforcement**: To maintain consistency in a professional environment, the `system_prompt` contains a strict directive: *\"Always generate your final response in English, regardless of the language of the provided CONTEXT or the USER QUERY.\"*
+
+---
+
+### 15. Audio & Voice Capabilities
+
+AnswerBot supports both live voice interactions and the ingestion of audio files as primary knowledge sources:
+
+- **Live Voice Input**: Users can click the microphone icon in the chat bar to record a query. The system captures the audio using the `MediaRecorder` API and transcribes it via OpenAI Whisper-1 for near-perfect accuracy.
+- **Audio Document Ingestion**: Supports `.mp3`, `.wav`, `.m4a`, and `.webm`. During upload, the system transcribes the file and indexes the text into the DuckDB RAG pipeline. This allows users to "ask questions" to their recordings (e.g., "What was the conclusion of the meeting audio?").
+
+---
+
+### 16. Whisper Integration Logic
+
+The voice-to-text pipeline is handled by the `transcribe_audio` function in `llm_client.py`:
+
+1. **Temp Storage**: Live blobs are saved to a temporary system file.
+2. **API Handshaking**: The file is sent to OpenAI's `whisper-1` model via the `client.audio.transcriptions` SDK.
+3. **Optimized Delivery**: The transcript is returned as a string and either populated into the UI (Live Voice) or passed to the chunking engine (Ingestion).
+4. **Clean-up**: Temporary audio files are purged immediately after transcription to ensure disk space efficiency and privacy.

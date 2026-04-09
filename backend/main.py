@@ -7,12 +7,13 @@ from typing import List, Dict, Any
 from backend.app.db import get_db, Document, DocumentChunk, init_db, refresh_fts_index
 from backend.app.ingestion.ingestion import process_file
 from backend.app.retrieval.retrieval import retrieve_top_k
-from backend.app.llm.llm_client import generate_answer
+from backend.app.llm.llm_client import generate_answer, transcribe_audio
 
 app = FastAPI(title="AnswerBot RAG System")
 
-# Mount static directory for images
+# Mount static directory for images and frontend
 app.mount("/static", StaticFiles(directory="backend/app/static"), name="static")
+app.mount("/frontend", StaticFiles(directory="frontend"), name="frontend")
 
 # Enable CORS for frontend integration
 app.add_middleware(
@@ -38,7 +39,7 @@ async def upload_document(file: UploadFile = File(...), db: Session = Depends(ge
     file_name = file.filename
     file_ext = os.path.splitext(file_name)[1].lower()
     
-    if file_ext not in [".pdf", ".docx", ".doc", ".txt"]:
+    if file_ext not in [".pdf", ".docx", ".doc", ".txt", ".mp3", ".wav", ".m4a", ".webm"]:
         raise HTTPException(status_code=400, detail="Unsupported file format")
         
     try:
@@ -154,6 +155,26 @@ async def query_documents(query: str = Form(...), chat_history: str = Form("[]")
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/transcribe-live")
+async def transcribe_live(audio: UploadFile = File(...)):
+    """Transcribes live audio blobs using Whisper for maximum accuracy."""
+    import tempfile
+    
+    file_ext = os.path.splitext(audio.filename)[1].lower() if audio.filename else ".webm"
+    if not file_ext: file_ext = ".webm"
+
+    with tempfile.NamedTemporaryFile(suffix=file_ext, delete=False) as tf:
+        content = await audio.read()
+        tf.write(content)
+        temp_path = tf.name
+    
+    try:
+        text = transcribe_audio(temp_path)
+        return {"text": text}
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
 if __name__ == "__main__":
     import uvicorn

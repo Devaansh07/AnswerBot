@@ -18,8 +18,10 @@ const sendIcon        = document.getElementById("send-icon");
 
 const newChatBtn      = document.getElementById("new-chat-btn");
 const sidebarChatList = document.getElementById("sidebar-chat-list");
+const micBtn          = document.getElementById("mic-btn");
 
 const confirmModal    = document.getElementById("confirm-modal");
+const modalTitle      = document.getElementById("modal-title");
 const modalMessage    = document.getElementById("modal-message");
 const modalCancel     = document.getElementById("modal-cancel");
 const modalConfirm    = document.getElementById("modal-confirm");
@@ -30,9 +32,13 @@ const progressStage     = document.getElementById("progress-stage");
 const progressPercent   = document.getElementById("progress-percent");
 
 // ---------- State ----------
-let stagedFiles     = [];
-let pendingDeleteId = null;
-let isQuerying      = false;
+let stagedFiles        = [];
+let pendingDeleteId    = null;
+let pendingDeleteType  = null; // 'document' or 'chat'
+let isQuerying         = false;
+let isListening        = false;
+let mediaRecorder      = null;
+let audioChunks        = [];
 
 let chatSessions = {};
 let currentChatId = null;
@@ -69,6 +75,9 @@ document.addEventListener("DOMContentLoaded", () => {
     queryInput.addEventListener("keydown", e => {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendQuery(); }
     });
+
+    initSpeech();
+    micBtn.addEventListener("click", toggleMic);
 });
 
 newChatBtn.addEventListener("click", createNewChat);
@@ -87,7 +96,12 @@ function createNewChat() {
 
 function deleteChat(id, e) {
     e.stopPropagation();
-    if (!confirm("Delete this chat?")) return;
+    const session = chatSessions[id];
+    const displayName = session ? (session.title || "Untitled Chat") : "this chat";
+    showDeleteModal("chat", id, displayName);
+}
+
+function executeChatDelete(id) {
     delete chatSessions[id];
     saveSessions();
     
@@ -98,7 +112,7 @@ function deleteChat(id, e) {
             remaining.sort((a, b) => chatSessions[b].updatedAt - chatSessions[a].updatedAt);
             currentChatId = remaining[0];
         } else {
-            createNewChat(); // automatically saves and renders
+            createNewChat();
             return;
         }
     }
@@ -162,6 +176,84 @@ function rebuildEmptyState() {
         <span>Your conversation history is saved automatically.</span>
     `;
     return el;
+}
+
+// ---------- Voice Input (Whisper Migration) ----------
+function initSpeech() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.warn("MediaDevices API not supported. Hiding mic.");
+        micBtn.style.display = "none";
+        return;
+    }
+}
+
+async function toggleMic() {
+    if (isListening) {
+        await stopMic();
+    } else {
+        await startMic();
+    }
+}
+
+async function startMic() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            await processLiveTranscription(audioBlob);
+            
+            // Cleanup stream
+            stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.start();
+        isListening = true;
+        micBtn.classList.add("mic-active");
+        queryInput.placeholder = "Listening... (Click mic to stop)";
+    } catch (err) {
+        console.error("Error accessing microphone:", err);
+        alert("Could not access microphone. Please check permissions.");
+    }
+}
+
+async function stopMic() {
+    if (!mediaRecorder || isListening === false) return;
+    isListening = false;
+    mediaRecorder.stop();
+    micBtn.classList.remove("mic-active");
+    queryInput.placeholder = "Transcribing voice...";
+}
+
+async function processLiveTranscription(blob) {
+    const formData = new FormData();
+    formData.append("audio", blob, "recording.webm");
+
+    try {
+        const response = await fetch(`${API_BASE}/transcribe-live`, {
+            method: "POST",
+            body: formData
+        });
+        
+        if (!response.ok) throw new Error("Transcription failed");
+        
+        const data = await response.json();
+        if (data.text) {
+            queryInput.value = data.text;
+            // Optionally auto-send query
+            // sendQuery(); 
+        }
+    } catch (err) {
+        console.error("Transcription error:", err);
+    } finally {
+        queryInput.placeholder = "Ask anything about your documents...";
+    }
 }
 
 // ---------- Send query ----------
@@ -514,7 +606,7 @@ function renderLibrary(docs) {
         const delBtn = document.createElement("button");
         delBtn.className = "btn-icon-delete";
         delBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>`;
-        delBtn.onclick = () => showDeleteModal(doc.id, doc.file_name);
+        delBtn.onclick = () => showDeleteModal("document", doc.id, doc.file_name);
         actions.appendChild(delBtn);
         item.appendChild(content);
         item.appendChild(actions);
@@ -529,30 +621,50 @@ function showStatus(text, type) {
 }
 
 // ---------- Delete modal ----------
-function showDeleteModal(id, fileName) {
+function showDeleteModal(type, id, displayName) {
+    pendingDeleteType = type;
     pendingDeleteId = id;
-    modalMessage.textContent = `Are you sure you want to delete "${fileName}"? This will remove all associated context.`;
+    
+    if (type === "document") {
+        modalTitle.textContent = "Delete Document?";
+        modalMessage.textContent = `Are you sure you want to delete "${displayName}"? This will remove all associated context.`;
+    } else {
+        modalTitle.textContent = "Delete Chat?";
+        modalMessage.textContent = `Are you sure you want to delete "${displayName}"? This conversation history will be lost.`;
+    }
+    
     confirmModal.style.display = "flex";
 }
 
-modalCancel.onclick = () => { confirmModal.style.display = "none"; pendingDeleteId = null; };
+modalCancel.onclick = () => { 
+    confirmModal.style.display = "none"; 
+    pendingDeleteId = null; 
+    pendingDeleteType = null;
+};
 
 modalConfirm.onclick = async () => {
-    if (!pendingDeleteId) return;
+    if (!pendingDeleteId || !pendingDeleteType) return;
+    
     modalConfirm.disabled = true;
     modalConfirm.textContent = "Deleting...";
+    
     try {
-        const res = await fetch(`${API_BASE}/documents/${pendingDeleteId}`, { method: "DELETE", mode: "cors" });
-        if (!res.ok) throw new Error();
-        showStatus("Document deleted.", "success");
-        fetchLibrary();
+        if (pendingDeleteType === "document") {
+            const res = await fetch(`${API_BASE}/documents/${pendingDeleteId}`, { method: "DELETE", mode: "cors" });
+            if (!res.ok) throw new Error();
+            showStatus("Document deleted.", "success");
+            fetchLibrary();
+        } else {
+            executeChatDelete(pendingDeleteId);
+        }
     } catch {
-        alert("Failed to delete document. Ensure the server is running.");
+        alert("Failed to delete. Ensure the server is running.");
     } finally {
         modalConfirm.disabled = false;
         modalConfirm.textContent = "Delete Now";
         confirmModal.style.display = "none";
         pendingDeleteId = null;
+        pendingDeleteType = null;
     }
 };
 

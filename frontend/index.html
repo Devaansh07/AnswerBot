@@ -40,11 +40,11 @@
                 Data Ingestion
             </h2>
             <div class="upload-container">
-                <p class="section-desc">Upload documents (PDF,DOC, DOCX, TXT) to index into the knowledge base.</p>
+                <p class="section-desc">Upload documents (PDF, DOC, DOCX, TXT) or audio (MP3, WAV, M4A) to index into the knowledge base.</p>
                 <div class="upload-input-group">
                     <label for="file-input" class="custom-file-upload">
                         <span>Choose Files</span>
-                        <input type="file" id="file-input" accept=".pdf,.docx,.doc,.txt" multiple>
+                        <input type="file" id="file-input" accept=".pdf,.docx,.doc,.txt,.mp3,.wav,.m4a,.webm" multiple>
                     </label>
                     <div id="file-queue" class="file-queue"></div>
                     <button id="upload-btn" class="btn-primary">Upload All</button>
@@ -104,6 +104,9 @@
             <div class="chat-input-bar">
                 <div class="chat-input-wrapper">
                     <input type="text" id="query-input" placeholder="Ask anything about your documents..." autocomplete="off">
+                    <button id="mic-btn" class="btn-mic" title="Voice Input">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                    </button>
                     <button id="ask-btn" class="btn-send" title="Send message">
                         <span id="ask-loader" class="loader"></span>
                         <svg id="send-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -120,7 +123,7 @@
             <div class="modal-icon">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
             </div>
-            <h3>Delete Document?</h3>
+            <h3 id="modal-title">Delete Document?</h3>
             <p id="modal-message">Are you sure you want to delete this document? This action is permanent.</p>
             <div class="modal-actions">
                 <button id="modal-cancel" class="btn-secondary">Cancel</button>
